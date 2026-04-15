@@ -1,5 +1,7 @@
 import os
+import numpy as np
 from datasets import load_dataset
+from sklearn.metrics import accuracy_score
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, Trainer, TrainingArguments
 
 
@@ -16,11 +18,18 @@ def tokenize(example, tokenizer):
     )
 
 
+def compute_metrics(eval_pred):
+    logits, labels = eval_pred
+    preds = np.argmax(logits, axis=1)
+    acc = accuracy_score(labels, preds)
+    return {"accuracy": acc}
+
+
 def main():
     print("loading dataset...")
     dataset = load_dataset("glue", "sst2")
 
-    train_data = dataset["train"].select(range(5000))
+    train_data = dataset["train"].select(range(15000))
     test_data = dataset["validation"]
 
     print("loading model...")
@@ -45,9 +54,15 @@ def main():
     args = TrainingArguments(
         output_dir=SAVE_PATH,
         per_device_train_batch_size=16,
-        num_train_epochs=2,
+        per_device_eval_batch_size=16,
+        num_train_epochs=3,
+        learning_rate=2e-5,
+        weight_decay=0.01,
+        eval_strategy="epoch",
+        save_strategy="epoch",
+        load_best_model_at_end=True,
+        metric_for_best_model="accuracy",
         logging_steps=50,
-        save_strategy="no",
         report_to="none"
     )
 
@@ -56,9 +71,14 @@ def main():
         args=args,
         train_dataset=train_data,
         eval_dataset=test_data,
+        compute_metrics=compute_metrics
     )
 
     trainer.train()
+
+    print("evaluating...")
+    results = trainer.evaluate()
+    print(f"Accuracy: {results['eval_accuracy']:.4f}")
 
     print("saving model...")
     trainer.save_model(SAVE_PATH)
